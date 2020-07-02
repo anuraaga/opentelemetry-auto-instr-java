@@ -3,11 +3,12 @@ ext {
 }
 
 group = 'io.opentelemetry.instrumentation'
-archivesBaseName = 'lettuce-5.1'
 
 apply from: "$rootDir/gradle/java.gradle"
 apply from: "$rootDir/gradle/publish.gradle"
 apply plugin: 'org.unbroken-dome.test-sets'
+
+archivesBaseName = 'lettuce-5.1'
 
 dependencies {
   // TODO(anuraaga): We currently include common instrumentation logic like decorators in the

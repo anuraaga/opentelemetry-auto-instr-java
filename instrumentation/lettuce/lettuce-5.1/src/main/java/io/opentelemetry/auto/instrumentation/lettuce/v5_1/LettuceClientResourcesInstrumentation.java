@@ -26,6 +26,7 @@ import static net.bytebuddy.matcher.ElementMatchers.named;
 import com.google.auto.service.AutoService;
 import io.lettuce.core.resource.DefaultClientResources;
 import io.opentelemetry.auto.tooling.Instrumenter;
+import io.opentelemetry.instrumentation.lettuce.v5_1.OpenTelemetryTracing;
 import java.util.Map;
 import net.bytebuddy.asm.Advice;
 import net.bytebuddy.description.method.MethodDescription;
@@ -51,6 +52,7 @@ public class LettuceClientResourcesInstrumentation extends Instrumenter.Default 
 
   @Override
   public String[] helperClassNames() {
+    String packageName = "io.opentelemetry.instrumentation.lettuce.v5_1";
     return new String[] {
       packageName + ".OpenTelemetryTracing",
       packageName + ".OpenTelemetryTracing$OpenTelemetryTracerProvider",
