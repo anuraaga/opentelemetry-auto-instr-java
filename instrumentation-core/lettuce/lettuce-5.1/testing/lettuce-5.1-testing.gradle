@@ -21,7 +21,7 @@ dependencies {
   // Only 5.2+ will have command arguments in the db.statement tag.
   api group: 'io.lettuce', name: 'lettuce-core', version: '5.2.0.RELEASE'
 
-  implementation project(':testing')
+  api project(':testing')
 
   implementation deps.groovy
   implementation deps.opentelemetryApi

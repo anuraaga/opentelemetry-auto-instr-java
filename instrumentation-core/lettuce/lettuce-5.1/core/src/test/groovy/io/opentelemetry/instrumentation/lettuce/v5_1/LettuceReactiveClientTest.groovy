@@ -14,18 +14,16 @@
  * limitations under the License.
  */
 
-package io.opentelemetry.auto.instrumentation.lettuce.v5_1
+package io.opentelemetry.instrumentation.lettuce.v5_1
 
 import io.lettuce.core.RedisClient
-import io.opentelemetry.auto.test.AgentTestTrait
-import io.opentelemetry.auto.test.SpockRunner
-import io.opentelemetry.instrumentation.lettuce.v5_1.AbstractLettuceAsyncClientTest
-import org.junit.runner.RunWith
+import io.lettuce.core.resource.ClientResources
+import io.opentelemetry.auto.test.InstrumentationTestTrait
 
-@RunWith(SpockRunner.class)
-class LettuceAsyncClientTest extends AbstractLettuceAsyncClientTest implements AgentTestTrait {
+class LettuceReactiveClientTest extends AbstractLettuceReactiveClientTest implements InstrumentationTestTrait {
   @Override
   RedisClient createRedisClient(String embeddedUrl) {
-    return RedisClient.create(embeddedDbUri)
+    return RedisClient.create(
+      ClientResources.builder().tracing(OpenTelemetryTracing.INSTANCE).build(), embeddedUrl)
   }
 }

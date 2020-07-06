@@ -17,10 +17,13 @@
 package io.opentelemetry.auto.instrumentation.lettuce.v5_1
 
 import io.lettuce.core.RedisClient
-import io.opentelemetry.auto.test.AgentTestRunner
-import io.opentelemetry.instrumentation.lettuce.v5_1.LettuceReactiveClientSpecTrait
+import io.opentelemetry.auto.test.AgentTestTrait
+import io.opentelemetry.auto.test.SpockRunner
+import io.opentelemetry.instrumentation.lettuce.v5_1.AbstractLettuceReactiveClientTest
+import org.junit.runner.RunWith
 
-class LettuceReactiveClientTest extends AgentTestRunner implements LettuceReactiveClientSpecTrait {
+@RunWith(SpockRunner.class)
+class LettuceReactiveClientTest extends AbstractLettuceReactiveClientTest implements AgentTestTrait {
   @Override
   RedisClient createRedisClient(String embeddedUrl) {
     return RedisClient.create(embeddedDbUri)

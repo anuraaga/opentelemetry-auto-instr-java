@@ -18,44 +18,61 @@ package io.opentelemetry.instrumentation.lettuce.v5_1
 
 import io.lettuce.core.ClientOptions
 import io.lettuce.core.RedisClient
+import io.lettuce.core.RedisConnectionException
 import io.lettuce.core.api.StatefulConnection
-import io.lettuce.core.api.reactive.RedisReactiveCommands
 import io.lettuce.core.api.sync.RedisCommands
 import io.opentelemetry.auto.test.utils.PortUtils
-import reactor.core.scheduler.Schedulers
 import redis.embedded.RedisServer
 import spock.lang.Shared
-import spock.util.concurrent.AsyncConditions
-
-import java.util.function.Consumer
+import spock.lang.Specification
 
 import static io.opentelemetry.trace.Span.Kind.CLIENT
 
-trait LettuceReactiveClientSpecTrait {
+abstract class AbstractLettuceSyncClientTest extends Specification {
   public static final String HOST = "127.0.0.1"
   public static final int DB_INDEX = 0
   // Disable autoreconnect so we do not get stray traces popping up on server shutdown
   public static final ClientOptions CLIENT_OPTIONS = ClientOptions.builder().autoReconnect(false).build()
 
+  abstract RedisClient createRedisClient(String embeddedUrl)
+
   @Shared
   int port
   @Shared
+  int incorrectPort
+  @Shared
+  String dbAddr
+  @Shared
+  String dbAddrNonExistent
+  @Shared
+  String dbUriNonExistent
+  @Shared
   String embeddedDbUri
+  @Shared
+  String embeddedDbLocalhostUri
 
   @Shared
   RedisServer redisServer
 
+  @Shared
+  Map<String, String> testHashMap = [
+    firstname: "John",
+    lastname : "Doe",
+    age      : "53"
+  ]
+
   RedisClient redisClient
   StatefulConnection connection
-  RedisReactiveCommands<String, ?> reactiveCommands
   RedisCommands<String, ?> syncCommands
-
-  abstract RedisClient createRedisClient(String embeddedUrl)
 
   def setupSpec() {
     port = PortUtils.randomOpenPort()
-    String dbAddr = HOST + ":" + port + "/" + DB_INDEX
+    incorrectPort = PortUtils.randomOpenPort()
+    dbAddr = HOST + ":" + port + "/" + DB_INDEX
+    dbAddrNonExistent = HOST + ":" + incorrectPort + "/" + DB_INDEX
+    dbUriNonExistent = "redis://" + dbAddrNonExistent
     embeddedDbUri = "redis://" + dbAddr
+    embeddedDbLocalhostUri = "redis://localhost:" + port + "/" + DB_INDEX
 
     redisServer = RedisServer.builder()
     // bind to localhost to avoid firewall popup
@@ -68,43 +85,59 @@ trait LettuceReactiveClientSpecTrait {
   def setup() {
     redisClient = createRedisClient(embeddedDbUri)
 
-    println "Using redis: $redisServer.args"
     redisServer.start()
-    redisClient.setOptions(CLIENT_OPTIONS)
-
     connection = redisClient.connect()
-    reactiveCommands = connection.reactive()
     syncCommands = connection.sync()
 
     syncCommands.set("TESTKEY", "TESTVAL")
+    syncCommands.hmset("TESTHM", testHashMap)
 
-    // 1 set
-    TEST_WRITER.waitForTraces(1)
+    // 2 sets
+    TEST_WRITER.waitForTraces(2)
     TEST_WRITER.clear()
   }
 
   def cleanup() {
     connection.close()
-    redisClient.shutdown()
     redisServer.stop()
   }
 
-  def "set command with subscribe on a defined consumer"() {
+  def "connect"() {
     setup:
-    def conds = new AsyncConditions()
-    Consumer<String> consumer = [
-      accept : { String res ->
-        conds.evaluate {
-          assert res == "OK"
-        }
-      }
-    ] as Consumer
+    RedisClient testConnectionClient = RedisClient.create(embeddedDbUri)
+    testConnectionClient.setOptions(CLIENT_OPTIONS)
 
     when:
-    reactiveCommands.set("TESTSETKEY", "TESTSETVAL").subscribe(consumer)
+    StatefulConnection connection = testConnectionClient.connect()
 
     then:
-    conds.await()
+    // Lettuce tracing does not trace connect
+    assertTraces(0) {}
+
+    cleanup:
+    connection.close()
+  }
+
+  def "connect exception"() {
+    setup:
+    RedisClient testConnectionClient = RedisClient.create(dbUriNonExistent)
+    testConnectionClient.setOptions(CLIENT_OPTIONS)
+
+    when:
+    testConnectionClient.connect()
+
+    then:
+    thrown RedisConnectionException
+    // Lettuce tracing does not trace connect
+    assertTraces(0) {}
+  }
+
+  def "set command"() {
+    setup:
+    String res = syncCommands.set("TESTSETKEY", "TESTSETVAL")
+
+    expect:
+    res == "OK"
     assertTraces(1) {
       trace(0, 1) {
         span(0) {
@@ -129,16 +162,47 @@ trait LettuceReactiveClientSpecTrait {
       }
     }
   }
-
-  def "get command with lambda function"() {
+  def "set command localhost"() {
     setup:
-    def conds = new AsyncConditions()
+    RedisClient testConnectionClient = createRedisClient(embeddedDbLocalhostUri)
+    testConnectionClient.setOptions(CLIENT_OPTIONS)
+    StatefulConnection connection = testConnectionClient.connect()
+    String res = connection.sync().set("TESTSETKEY", "TESTSETVAL")
 
-    when:
-    reactiveCommands.get("TESTKEY").subscribe { res -> conds.evaluate { assert res == "TESTVAL" } }
+    expect:
+    res == "OK"
+    assertTraces(1) {
+      trace(0, 1) {
+        span(0) {
+          operationName "SET"
+          spanKind CLIENT
+          errored false
+          tags {
+            "net.transport" "IP.TCP"
+            "net.peer.ip" "127.0.0.1"
+            "net.peer.name" "localhost"
+            "net.peer.port" port
+            "db.url" "redis://localhost:$port"
+            "db.type" "redis"
+            "db.statement" "SET key<TESTSETKEY> value<TESTSETVAL>"
+          }
+          event(0) {
+            eventName "redis.encode.start"
+          }
+          event(1) {
+            eventName "redis.encode.end"
+          }
+        }
+      }
+    }
+  }
 
-    then:
-    conds.await()
+  def "get command"() {
+    setup:
+    String res = syncCommands.get("TESTKEY")
+
+    expect:
+    res == "TESTVAL"
     assertTraces(1) {
       trace(0, 1) {
         span(0) {
@@ -164,23 +228,12 @@ trait LettuceReactiveClientSpecTrait {
     }
   }
 
-  // to make sure instrumentation's chained completion stages won't interfere with user's, while still
-  // recording metrics
   def "get non existent key command"() {
     setup:
-    def conds = new AsyncConditions()
-    final defaultVal = "NOT THIS VALUE"
+    String res = syncCommands.get("NON_EXISTENT_KEY")
 
-    when:
-    reactiveCommands.get("NON_EXISTENT_KEY").defaultIfEmpty(defaultVal).subscribe {
-      res ->
-        conds.evaluate {
-          assert res == defaultVal
-        }
-    }
-
-    then:
-    conds.await()
+    expect:
+    res == null
     assertTraces(1) {
       trace(0, 1) {
         span(0) {
@@ -204,23 +257,14 @@ trait LettuceReactiveClientSpecTrait {
         }
       }
     }
-
   }
 
   def "command with no arguments"() {
     setup:
-    def conds = new AsyncConditions()
+    def keyRetrieved = syncCommands.randomkey()
 
-    when:
-    reactiveCommands.randomkey().subscribe {
-      res ->
-        conds.evaluate {
-          assert res == "TESTKEY"
-        }
-    }
-
-    then:
-    conds.await()
+    expect:
+    keyRetrieved != null
     assertTraces(1) {
       trace(0, 1) {
         span(0) {
@@ -246,15 +290,16 @@ trait LettuceReactiveClientSpecTrait {
     }
   }
 
-  def "command flux publisher "() {
+  def "list command"() {
     setup:
-    reactiveCommands.command().subscribe()
+    long res = syncCommands.lpush("TESTLIST", "TESTLIST ELEMENT")
 
     expect:
+    res == 1
     assertTraces(1) {
       trace(0, 1) {
         span(0) {
-          operationName "COMMAND"
+          operationName "LPUSH"
           spanKind CLIENT
           errored false
           tags {
@@ -262,8 +307,8 @@ trait LettuceReactiveClientSpecTrait {
             "net.peer.ip" "127.0.0.1"
             "net.peer.port" port
             "db.url" "redis://127.0.0.1:$port"
-            "db.statement" "COMMAND"
             "db.type" "redis"
+            "db.statement" "LPUSH key<TESTLIST> value<TESTLIST ELEMENT>"
           }
           event(0) {
             eventName "redis.encode.start"
@@ -276,67 +321,25 @@ trait LettuceReactiveClientSpecTrait {
     }
   }
 
-  def "non reactive command should not produce span"() {
+  def "hash set command"() {
     setup:
-    String res = null
+    def res = syncCommands.hmset("user", testHashMap)
 
-    when:
-    res = reactiveCommands.digest()
-
-    then:
-    res != null
-    TEST_WRITER.traces.size() == 0
-  }
-
-  def "blocking subscriber"() {
-    when:
-    io.opentelemetry.auto.test.utils.TraceUtils.runUnderTrace("test-parent") {
-      reactiveCommands.set("a", "1")
-        .then(reactiveCommands.get("a"))
-        .block()
-    }
-
-    then:
+    expect:
+    res == "OK"
     assertTraces(1) {
-      trace(0, 3) {
+      trace(0, 1) {
         span(0) {
-          operationName "test-parent"
-          errored false
-          tags {
-          }
-        }
-        span(1) {
-          operationName "SET"
+          operationName "HMSET"
           spanKind CLIENT
           errored false
-          childOf span(0)
           tags {
             "net.transport" "IP.TCP"
             "net.peer.ip" "127.0.0.1"
             "net.peer.port" port
             "db.url" "redis://127.0.0.1:$port"
             "db.type" "redis"
-            "db.statement" "SET key<a> value<1>"
-          }
-          event(0) {
-            eventName "redis.encode.start"
-          }
-          event(1) {
-            eventName "redis.encode.end"
-          }
-        }
-        span(2) {
-          operationName "GET"
-          spanKind CLIENT
-          errored false
-          childOf span(0)
-          tags {
-            "net.transport" "IP.TCP"
-            "net.peer.ip" "127.0.0.1"
-            "net.peer.port" port
-            "db.url" "redis://127.0.0.1:$port"
-            "db.type" "redis"
-            "db.statement" "GET key<a>"
+            "db.statement" "HMSET key<user> key<firstname> value<John> key<lastname> value<Doe> key<age> value<53>"
           }
           event(0) {
             eventName "redis.encode.start"
@@ -349,55 +352,25 @@ trait LettuceReactiveClientSpecTrait {
     }
   }
 
-  def "async subscriber"() {
-    when:
-    io.opentelemetry.auto.test.utils.TraceUtils.runUnderTrace("test-parent") {
-      reactiveCommands.set("a", "1")
-        .then(reactiveCommands.get("a"))
-        .subscribe()
-    }
+  def "hash getall command"() {
+    setup:
+    Map<String, String> res = syncCommands.hgetall("TESTHM")
 
-    then:
+    expect:
+    res == testHashMap
     assertTraces(1) {
-      trace(0, 3) {
+      trace(0, 1) {
         span(0) {
-          operationName "test-parent"
-          errored false
-          tags {
-          }
-        }
-        span(1) {
-          operationName "SET"
+          operationName "HGETALL"
           spanKind CLIENT
           errored false
-          childOf span(0)
           tags {
             "net.transport" "IP.TCP"
             "net.peer.ip" "127.0.0.1"
             "net.peer.port" port
             "db.url" "redis://127.0.0.1:$port"
             "db.type" "redis"
-            "db.statement" "SET key<a> value<1>"
-          }
-          event(0) {
-            eventName "redis.encode.start"
-          }
-          event(1) {
-            eventName "redis.encode.end"
-          }
-        }
-        span(2) {
-          operationName "GET"
-          spanKind CLIENT
-          errored false
-          childOf span(0)
-          tags {
-            "net.transport" "IP.TCP"
-            "net.peer.ip" "127.0.0.1"
-            "net.peer.port" port
-            "db.url" "redis://127.0.0.1:$port"
-            "db.type" "redis"
-            "db.statement" "GET key<a>"
+            "db.statement" "HGETALL key<TESTHM>"
           }
           event(0) {
             eventName "redis.encode.start"
@@ -410,65 +383,18 @@ trait LettuceReactiveClientSpecTrait {
     }
   }
 
-  def "async subscriber with specific thread pool"() {
-    when:
-    io.opentelemetry.auto.test.utils.TraceUtils.runUnderTrace("test-parent") {
-      reactiveCommands.set("a", "1")
-        .then(reactiveCommands.get("a"))
-        .subscribeOn(Schedulers.elastic())
-        .subscribe()
-    }
-
-    then:
-    assertTraces(1) {
-      trace(0, 3) {
-        span(0) {
-          operationName "test-parent"
-          errored false
-          tags {
-          }
-        }
-        span(1) {
-          operationName "SET"
-          spanKind CLIENT
-          errored false
-          childOf span(0)
-          tags {
-            "net.transport" "IP.TCP"
-            "net.peer.ip" "127.0.0.1"
-            "net.peer.port" port
-            "db.url" "redis://127.0.0.1:$port"
-            "db.type" "redis"
-            "db.statement" "SET key<a> value<1>"
-          }
-          event(0) {
-            eventName "redis.encode.start"
-          }
-          event(1) {
-            eventName "redis.encode.end"
-          }
-        }
-        span(2) {
-          operationName "GET"
-          spanKind CLIENT
-          errored false
-          childOf span(0)
-          tags {
-            "net.transport" "IP.TCP"
-            "net.peer.ip" "127.0.0.1"
-            "net.peer.port" port
-            "db.url" "redis://127.0.0.1:$port"
-            "db.type" "redis"
-            "db.statement" "GET key<a>"
-          }
-          event(0) {
-            eventName "redis.encode.start"
-          }
-          event(1) {
-            eventName "redis.encode.end"
-          }
-        }
-      }
-    }
+  def "debug segfault command (returns void) with no argument produces no span"() {
+    setup:
+    syncCommands.debugSegfault()
+    expect:
+    // lettuce tracing does not trace debug
+    assertTraces(0) {}
+  }
+  def "shutdown command (returns void) produces no span"() {
+    setup:
+    syncCommands.shutdown(false)
+    expect:
+    // lettuce tracing does not trace shutdown
+    assertTraces(0) {}
   }
 }
