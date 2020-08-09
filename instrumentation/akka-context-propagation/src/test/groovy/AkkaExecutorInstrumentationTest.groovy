@@ -77,6 +77,7 @@ class AkkaExecutorInstrumentationTest extends AgentTestRunner {
     List<SpanData> trace = TEST_WRITER.traces[0]
 
     expect:
+    false
     TEST_WRITER.traces.size() == 1
     trace.size() == 2
     trace.get(0).name == "parent"
