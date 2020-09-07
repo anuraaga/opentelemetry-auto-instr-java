@@ -94,8 +94,13 @@ public class ContextTestInstrumentation extends Instrumenter.Default {
         @Advice.This KeyClass thiz, @Advice.Return(readOnly = false) int contextCount) {
       ContextStore<KeyClass, Context> contextStore =
           InstrumentationContext.get(KeyClass.class, Context.class);
-      Context context = contextStore.putIfAbsent(thiz, new Context());
-      contextCount = ++context.count;
+      Context newContext = new Context();
+      Context oldContext = contextStore.putIfAbsent(thiz, newContext);
+      if (oldContext != null) {
+        contextCount = ++oldContext.count;
+      } else {
+        contextCount = ++newContext.count;
+      }
     }
   }
 
@@ -105,7 +110,7 @@ public class ContextTestInstrumentation extends Instrumenter.Default {
         @Advice.This KeyClass thiz, @Advice.Return(readOnly = false) int contextCount) {
       ContextStore<KeyClass, Context> contextStore =
           InstrumentationContext.get(KeyClass.class, Context.class);
-      Context context = contextStore.putIfAbsent(thiz, Context.FACTORY);
+      Context context = contextStore.computeIfAbsent(thiz, Context.FACTORY);
       contextCount = ++context.count;
     }
   }

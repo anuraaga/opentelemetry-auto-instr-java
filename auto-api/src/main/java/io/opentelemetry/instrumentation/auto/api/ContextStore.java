@@ -59,7 +59,7 @@ public interface ContextStore<K, C> {
    *
    * @param key key to use
    * @param context new context instance to put
-   * @return old instance if it was present, or new instance
+   * @return old instance if it was present, or {@code null} if no existing mapping.
    */
   C putIfAbsent(K key, C context);
 
@@ -71,5 +71,5 @@ public interface ContextStore<K, C> {
    * @param contextFactory factory instance to produce new context object
    * @return old instance if it was present, or new instance
    */
-  C putIfAbsent(K key, Factory<C> contextFactory);
+  C computeIfAbsent(K key, Factory<C> contextFactory);
 }

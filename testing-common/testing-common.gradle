@@ -1,7 +1,7 @@
 apply plugin: 'io.opentelemetry.instrumentation.auto-instrumentation'
 apply from: "$rootDir/gradle/java.gradle"
 
-minimumBranchCoverage = 0.5
+minimumBranchCoverage = 0.3
 minimumInstructionCoverage = 0.5
 excludedClassesCoverage += [
   'io.opentelemetry.auto.test.asserts.*Assert*',

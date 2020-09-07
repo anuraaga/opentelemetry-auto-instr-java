@@ -891,12 +891,12 @@ public class FieldBackedProvider implements InstrumentationContextProvider {
           return existingContext;
         }
         realPut(key, context);
-        return context;
+        return null;
       }
     }
 
     @Override
-    public Object putIfAbsent(Object key, Factory<Object> contextFactory) {
+    public Object computeIfAbsent(Object key, Factory<Object> contextFactory) {
       Object existingContext = realGet(key);
       if (null != existingContext) {
         return existingContext;

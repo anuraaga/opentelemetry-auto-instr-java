@@ -107,7 +107,7 @@ public class ChannelFutureListenerInstrumentation extends Instrumenter.Default {
 
       Span continuation =
           contextStore
-              .putIfAbsent(future.getChannel(), ChannelTraceContext.Factory.INSTANCE)
+              .computeIfAbsent(future.getChannel(), ChannelTraceContext.Factory.INSTANCE)
               .getConnectionContinuation();
       contextStore.get(future.getChannel()).setConnectionContinuation(null);
       if (continuation == null) {

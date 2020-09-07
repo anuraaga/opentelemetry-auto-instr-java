@@ -95,7 +95,7 @@ public class HttpUrlConnectionInstrumentation extends Instrumenter.Default {
 
       ContextStore<HttpURLConnection, HttpUrlState> contextStore =
           InstrumentationContext.get(HttpURLConnection.class, HttpUrlState.class);
-      HttpUrlState state = contextStore.putIfAbsent(thiz, HttpUrlState.FACTORY);
+      HttpUrlState state = contextStore.computeIfAbsent(thiz, HttpUrlState.FACTORY);
 
       synchronized (state) {
         if (!state.hasSpan() && !state.isFinished()) {
