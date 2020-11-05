@@ -23,8 +23,8 @@ jobs:
         with:
           job-id: grpc-smoke
 
-      - name: Login to GitHub Package Registry
-        run: docker login -u ${{ secrets.BINTRAY_USER }} -p ${{ secrets.BINTRAY_API_KEY }} open-telemetry-docker-dev.bintray.io
+      #- name: Login to GitHub Package Registry
+      #  run: docker login -u ${{ secrets.BINTRAY_USER }} -p ${{ secrets.BINTRAY_API_KEY }} open-telemetry-docker-dev.bintray.io
 
       - name: Build Docker Image
         run: |
