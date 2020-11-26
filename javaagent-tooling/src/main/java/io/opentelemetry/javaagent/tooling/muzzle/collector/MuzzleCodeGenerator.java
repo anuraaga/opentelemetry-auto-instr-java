@@ -10,7 +10,6 @@ import io.opentelemetry.javaagent.tooling.Utils;
 import io.opentelemetry.javaagent.tooling.muzzle.Reference;
 import io.opentelemetry.javaagent.tooling.muzzle.matcher.ReferenceMatcher;
 import java.util.List;
-import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
@@ -142,10 +141,11 @@ class MuzzleCodeGenerator implements AsmVisitorWrapper {
     }
 
     private ReferenceCollector collectReferences() {
-      Set<String> adviceClassNames =
+      List<String> adviceClassNames =
           instrumenter.typeInstrumentations().stream()
               .flatMap(typeInstrumentation -> typeInstrumentation.transformers().values().stream())
-              .collect(Collectors.toSet());
+              .distinct()
+              .collect(Collectors.toList());
 
       ReferenceCollector collector = new ReferenceCollector();
       for (String adviceClass : adviceClassNames) {
