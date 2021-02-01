@@ -80,11 +80,13 @@ dependencies {
   testImplementation deps.opentelemetryApi
 }
 
+tasks.withType(Test).configureEach {
+  jvmArgs "-Dotel.javaagent.debug=true"
+  dependsOn shadowJar
+}
+
 afterEvaluate {
   tasks.withType(Test).configureEach {
-    jvmArgs "-Dotel.javaagent.debug=true"
     jvmArgs "-javaagent:${shadowJar.archiveFile.get().asFile.absolutePath}"
-
-    dependsOn shadowJar
   }
 }
