@@ -15,8 +15,6 @@ import io.grpc.ClientInterceptor;
 import io.grpc.ManagedChannelBuilder;
 import io.opentelemetry.javaagent.extension.instrumentation.TypeInstrumentation;
 import io.opentelemetry.javaagent.extension.instrumentation.TypeTransformer;
-import io.opentelemetry.javaagent.instrumentation.api.ContextStore;
-import io.opentelemetry.javaagent.instrumentation.api.InstrumentationContext;
 import java.util.List;
 import net.bytebuddy.asm.Advice;
 import net.bytebuddy.description.type.TypeDescription;
@@ -48,11 +46,8 @@ public class GrpcClientBuilderBuildInstrumentation implements TypeInstrumentatio
     public static void addInterceptor(
         @Advice.This ManagedChannelBuilder<?> builder,
         @Advice.FieldValue("interceptors") List<ClientInterceptor> interceptors) {
-      ContextStore<ManagedChannelBuilder<?>, Boolean> instrumented =
-          InstrumentationContext.get(ManagedChannelBuilder.class, Boolean.class);
-      if (!Boolean.TRUE.equals(instrumented.get(builder))) {
+      if (!interceptors.contains(GrpcSingletons.CLIENT_INTERCEPTOR)) {
         interceptors.add(0, GrpcSingletons.CLIENT_INTERCEPTOR);
-        instrumented.put(builder, true);
       }
     }
   }
